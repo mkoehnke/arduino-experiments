@@ -7,14 +7,17 @@
 //
 
 import UIKit
+import Foundation
 import CoreBluetooth
 
 class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDelegate {
 
     struct Static {
-        private static let ServiceUUID = CBUUID(string: "19B10001-E8F2-537E-4F6C-D104768A1214")
+        private static let ServiceUUID = CBUUID(string: "19B10000-E8F2-537E-4F6C-D104768A1214")
+        private static let CharacteristicUUID = CBUUID(string: "19B10001-E8F2-537E-4F6C-D104768A1214")
     }
     
+    @IBOutlet weak var button : UIButton!
     private var centralManager : CBCentralManager!
     private var peripheral : CBPeripheral?
     private var characteristic : CBCharacteristic?
@@ -47,7 +50,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     }
     
     func centralManager(central: CBCentralManager, didDiscoverPeripheral peripheral: CBPeripheral, advertisementData: [String : AnyObject], RSSI: NSNumber) {
-        if let peripheralName = peripheral.name where String(peripheralName.characters.suffix(4)) == "DAF5" {
+        if let peripheralName = peripheral.name where peripheralName.uppercaseString.hasPrefix("GENUINO 101") {
             print("Connecting to peripheral \(peripheralName) ...")
             self.peripheral = peripheral
             central.connectPeripheral(peripheral, options: nil)
@@ -67,8 +70,8 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         print("Did connect to peripheral \(peripheral.name ?? peripheral.identifier.UUIDString).")
         central.stopScan()
         print("Scanning stopped.")
-        peripheral.delegate = self
-        peripheral.discoverServices([Static.ServiceUUID])
+        self.peripheral?.delegate = self
+        self.peripheral?.discoverServices([Static.ServiceUUID])
     }
     
     func cleanup() {
@@ -77,7 +80,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             for service in services {
                 if let characteristics = service.characteristics {
                     for characteristic in characteristics {
-                        if characteristic.UUID.isEqual(Static.ServiceUUID) {
+                        if characteristic.UUID.isEqual(Static.CharacteristicUUID) {
                             if characteristic.isNotifying {
                                 peripheral?.setNotifyValue(false, forCharacteristic: characteristic)
                                 return
@@ -104,7 +107,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         
         if let services = peripheral.services {
             for service in services {
-                peripheral.discoverCharacteristics([Static.ServiceUUID], forService: service)
+                peripheral.discoverCharacteristics([Static.CharacteristicUUID], forService: service)
             }
         }
     }
@@ -118,9 +121,11 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         
         if let characteristics = service.characteristics {
             for characteristic in characteristics {
-                if characteristic.UUID.isEqual(Static.ServiceUUID) {
+                if characteristic.UUID.isEqual(Static.CharacteristicUUID) {
                     peripheral.setNotifyValue(true, forCharacteristic: characteristic)
                     self.characteristic = characteristic
+                    print("Subscribed to characteristic: \(characteristic)")
+                    updateButton()
                 }
             }
         }
@@ -132,17 +137,36 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             return
         }
         
-        print(characteristic.value)
+        print("Value changed to \(getValueFromCharacteristic())")
+        updateButton()
     }
     
     // MARK: Actions
     
     @IBAction func buttonTouched(sender: AnyObject) {
-        var value: Int = 1
-        let data = NSData(bytes: &value, length: sizeof(Int))
+        var value = getValueFromCharacteristic() == NSInteger(0) ? NSInteger(1) : NSInteger(0)
+        let data = NSData(bytes: &value, length: 1)
         
         if let peripheral = peripheral, characteristic = characteristic {
-            peripheral.writeValue(data, forCharacteristic: characteristic, type: CBCharacteristicWriteType.WithoutResponse)
+            peripheral.writeValue(data, forCharacteristic: characteristic, type: CBCharacteristicWriteType.WithResponse)
+            peripheral.readValueForCharacteristic(characteristic)
+        }
+    }
+    
+    func getValueFromCharacteristic() -> NSInteger {
+        if let data = self.characteristic?.value {
+            var result: NSInteger = 0
+            data.getBytes(&result, length: 1)
+            return result
+        }
+        return NSInteger(0)
+    }
+    
+    func updateButton() {
+        if getValueFromCharacteristic() == 0 {
+            button.setTitle("Turn On", forState: .Normal)
+        } else {
+            button.setTitle("Turn Off", forState: .Normal)
         }
     }
 }
